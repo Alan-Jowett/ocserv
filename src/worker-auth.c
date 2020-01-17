@@ -102,11 +102,19 @@ static const char login_msg_user[] =
 #define OCV3_LOGIN_MSG_START _OCV3_LOGIN_MSG_START("main")
 #define OCV3_PASSWD_MSG_START _OCV3_LOGIN_MSG_START("passwd")
 
+#ifdef SUPPORT_CUSTOM_AUTH
+#define HTTP_AUTH_BEARER_PREFIX "Bearer"
+#endif
+
 static const char ocv3_login_msg_end[] =
     "</form></auth>\n";
 
 static int get_cert_info(worker_st * ws);
 static int basic_auth_handler(worker_st * ws, unsigned http_ver, const char *msg);
+
+#ifdef SUPPORT_CUSTOM_AUTH
+static int bearer_auth_handler(worker_st * ws, unsigned http_ver);
+#endif 
 
 int ws_switch_auth_to(struct worker_st *ws, unsigned auth)
 {
@@ -1330,6 +1338,49 @@ int basic_auth_handler(worker_st * ws, unsigned http_ver, const char *msg)
 	return ret;
 }
 
+#ifdef SUPPORT_CUSTOM_AUTH
+static
+int bearer_auth_handler(worker_st * ws, unsigned http_ver)
+{
+	int ret;
+
+	oclog(ws, LOG_HTTP_DEBUG, "HTTP sending: 401 Unauthorized");
+	cstp_cork(ws);
+	ret = cstp_printf(ws, "HTTP/1.%u 401 Unauthorized\r\n", http_ver);
+	if (ret < 0)
+		return -1;
+
+	oclog(ws, LOG_HTTP_DEBUG, "HTTP sending: WWW-Authenticate: %s", HTTP_AUTH_BEARER_PREFIX);
+	ret = cstp_printf(ws, "WWW-Authenticate: %s\r\n", HTTP_AUTH_BEARER_PREFIX);
+
+	if (ret < 0)
+		return -1;
+
+	ret = cstp_puts(ws, "Content-Length: 0\r\n");
+	if (ret < 0) {
+		ret = -1;
+		goto cleanup;
+	}
+
+	ret = cstp_puts(ws, "\r\n");
+	if (ret < 0) {
+		ret = -1;
+		goto cleanup;
+	}
+
+	ret = cstp_uncork(ws);
+	if (ret < 0) {
+		ret = -1;
+		goto cleanup;
+	}
+
+	ret = 0;
+
+ cleanup:
+	return ret;
+}
+#endif
+
 static char *get_our_ip(worker_st * ws, char str[MAX_IP_STR])
 {
 	int ret;
@@ -1379,6 +1430,10 @@ int post_auth_handler(worker_st * ws, unsigned http_ver)
 		      req->body);
 	}
 
+#ifdef SUPPORT_CUSTOM_AUTH
+retry:
+#endif
+
 	if (ws->sid_set && ws->auth_state == S_AUTH_INACTIVE)
 		ws->auth_state = S_AUTH_INIT;
 
@@ -1408,6 +1463,20 @@ int post_auth_handler(worker_st * ws, unsigned http_ver)
 			}
 		}
 		talloc_free(groupname);
+
+#ifdef SUPPORT_CUSTOM_AUTH
+		if (ws->selected_auth->type & AUTH_TYPE_PLUGIN) {
+			if (req->authorization == NULL || req->authorization_size == 0)
+				return bearer_auth_handler(ws, http_ver);
+
+			if ((req->authorization_size > strlen(HTTP_AUTH_BEARER_PREFIX)) && strncasecmp(req->authorization, HTTP_AUTH_BEARER_PREFIX, strlen(HTTP_AUTH_BEARER_PREFIX)) == 0) {
+				ireq.auth_type |= AUTH_TYPE_PLUGIN;
+			} else {
+				oclog(ws, LOG_HTTP_DEBUG, "Invalid authorization data: %.*s", req->authorization_size, req->authorization);
+				goto auth_fail;
+			}
+		}
+#endif
 
 		if (ws->selected_auth->type & AUTH_TYPE_GSSAPI) {
 			if (req->authorization == NULL || req->authorization_size == 0)
@@ -1504,6 +1573,17 @@ int post_auth_handler(worker_st * ws, unsigned http_ver)
 
 		areq.ip = ws->remote_ip_str;
 
+#ifdef SUPPORT_CUSTOM_AUTH
+		if (ws->selected_auth->type & AUTH_TYPE_PLUGIN) {
+			if ((req->authorization_size > strlen(HTTP_AUTH_BEARER_PREFIX)) && strncasecmp(req->authorization, HTTP_AUTH_BEARER_PREFIX, strlen(HTTP_AUTH_BEARER_PREFIX)) == 0) {
+				areq.password = req->authorization + strlen(HTTP_AUTH_BEARER_PREFIX) + 1;
+			} else {
+				oclog(ws, LOG_HTTP_DEBUG, "Invalid authorization data: %.*s", req->authorization_size, req->authorization);
+				goto auth_fail;
+			}
+		}
+#endif
+
 		if (ws->selected_auth->type & AUTH_TYPE_GSSAPI) {
 			if (req->authorization == NULL || req->authorization_size <= 10) {
 				if (req->authorization != NULL)
@@ -1574,6 +1654,14 @@ int post_auth_handler(worker_st * ws, unsigned http_ver)
 	}
 
 	if (ret == ERR_AUTH_CONTINUE) {
+		
+#ifdef SUPPORT_CUSTOM_AUTH
+		// For the plugin, assume the token is already present
+		if ((ws->selected_auth->type & AUTH_TYPE_PLUGIN) &&
+			(ws->auth_state == S_AUTH_INIT)) {
+			goto retry;
+		}
+#endif 
 		oclog(ws, LOG_DEBUG, "continuing authentication for '%s'",
 		      ws->username);
 		ws->auth_state = S_AUTH_REQ;

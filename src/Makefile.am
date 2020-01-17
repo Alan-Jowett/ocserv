@@ -23,7 +23,7 @@ noinst_LIBRARIES = libipc.a
 # Authentication module sources
 AUTH_SOURCES=auth/pam.c auth/pam.h auth/plain.c auth/plain.h auth/radius.c auth/radius.h \
 	auth/common.c auth/common.h auth/gssapi.h auth/gssapi.c auth-unix.c \
-	auth-unix.h
+	auth-unix.h auth/plugin.h auth/plugin.c 
 
 ACCT_SOURCES=acct/radius.c acct/radius.h acct/pam.c acct/pam.h
 
@@ -68,7 +68,7 @@ ocserv_LDADD += $(LIBGNUTLS_LIBS) $(PAM_LIBS) $(LIBUTIL) \
 	$(RADCLI_LIBS) $(LIBLZ4_LIBS) $(LIBKRB5_LIBS) \
 	$(LIBTASN1_LIBS) $(LIBOATH_LIBS) $(LIBNETTLE_LIBS) \
 	$(LIBEV_LIBS) libipc.a $(NEEDED_LIBPROTOBUF_LIBS) \
-	$(CODE_COVERAGE_LDFLAGS)
+	$(CODE_COVERAGE_LDFLAGS) $(DL_LIBS)
 
 
 ocserv_SOURCES += main-ctl-unix.c

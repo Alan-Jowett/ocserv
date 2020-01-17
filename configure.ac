@@ -570,6 +570,41 @@ if test "$have_cwrap_pam" = yes; then
 	fi
 fi
 
+test -z "$SED" && SED=sed
+
+AC_ARG_ENABLE([debug],
+  [AS_HELP_STRING([--enable-debug],
+                  [whether to include debug symbols (default is no)])],
+  [enable_debug=$enableval],
+  [enable_debug=no]
+)
+
+if test "x$enable_debug" = xyes; then
+  dnl Remove all optimization flags from CFLAGS
+  changequote({,})
+  CFLAGS=`echo "$CFLAGS" | $SED -e 's/-O[0-9s]*//g'`
+  CXXFLAGS=`echo "$CXXFLAGS" | $SED -e 's/-O[0-9s]*//g'`
+
+  CFLAGS=`echo "$CFLAGS" | $SED -e 's/-g[0-9]*//g'`
+  CXXFLAGS=`echo "$CXXFLAGS" | $SED -e 's/-g[0-9]*//g'`
+  changequote([,])
+
+  CFLAGS="$CFLAGS -g -O0"
+  CXXFLAGS="$CXXFLAGS -g -O0"
+fi
+
+AC_ARG_ENABLE([custom-auth],
+  [AS_HELP_STRING([--custom-auth],
+                  [whether to support custom auth (default is no)])],
+  [enable_custom_auth=$enableval],
+  [enable_custom_auth=no]
+)
+
+if test "x$enable_custom_auth" = xyes; then
+  AC_DEFINE([SUPPORT_CUSTOM_AUTH], 1, [Enable support for custom auth])
+  AC_SUBST([DL_LIBS], [-ldl])  
+fi
+
 uid=$(id -u)
 gid=$(id -g)
 AC_SUBST([ROOTUID], [$uid])
@@ -605,6 +640,7 @@ Summary of build options:
   PAM auth backend:     ${pam_enabled}
   Radius auth backend:  ${radius_enabled}
   GSSAPI auth backend:  ${enable_gssapi}
+  Custom auth backend:  ${enable_custom_auth}
   Anyconnect compat:    ${anyconnect_enabled}
   TCP wrappers:         ${libwrap_enabled}
   systemd:              ${systemd_enabled}
@@ -622,6 +658,7 @@ Summary of build options:
   local protobuf-c:     ${with_local_protobuf_c}
   local PCL library:    ${with_local_pcl}
   local http-parser:    ${with_local_http_parser}
+  enable debug symbols  ${enable_debug}
 ])
 
 if test "${warn_leak}" = "yes";then

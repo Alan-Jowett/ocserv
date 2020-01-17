@@ -332,3 +332,28 @@ void *plain_get_brackets_string(void *pool, struct perm_cfg_st *config, const ch
 
 	return additional;
 }
+
+
+void *plugin_get_brackets_string(void * pool, struct perm_cfg_st *config, const char *str)
+{
+	subcfg_val_st vals[MAX_SUBOPTIONS];
+	string_tuple * additional;
+
+	unsigned vals_size, i;
+	
+	vals_size  = expand_brackets_string(pool, str, vals);
+
+	additional = talloc_zero_array(pool, string_tuple, vals_size + 1);
+
+	if (additional == NULL)	{
+		fprintf(stderr, "plugin: failed to allocate options\n");
+		exit(1);
+	}
+
+	for (i = 0; i < vals_size; i ++)	{
+		additional[i][0] =  vals[i].name;
+		additional[i][1] =  vals[i].value;
+	}
+	
+	return additional;
+}
